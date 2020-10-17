@@ -1,5 +1,3 @@
-#!/usr/bin/python
-
 #-----------------------------------------------------------------------------
 
 # usage:
@@ -22,7 +20,7 @@ class YBError(Exception):
     return str(self.message)
 
   def __unicode__(self):
-    return unicode(self.message)
+    return str(self.message)
 
   def __repr__(self):
     return "<YBError (%d)>" % (self._exit)

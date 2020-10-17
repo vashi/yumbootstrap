@@ -1,8 +1,6 @@
-#!/usr/bin/python
-
 import os
 import subprocess
-from exceptions import YBError
+from .exceptions import YBError
 
 READ  = object() # read from
 WRITE = object() # write to

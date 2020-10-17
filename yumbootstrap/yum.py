@@ -1,12 +1,10 @@
-#!/usr/bin/python
-
 import rpm as rpm_mod
 import os
 import shutil
 
-import bdb
-import sh
-import fs
+from . import bdb
+from . import sh
+from . import fs
 
 import logging
 logger = logging.getLogger("yum")
