@@ -2,7 +2,7 @@
 
 import os
 import sys
-import optparse
+import argparse
 import errno
 import logging
 
@@ -23,13 +23,7 @@ logger.addHandler(yumbootstrap.log.ProgressHandler())
 
 #-----------------------------------------------------------------------------
 
-o = optparse.OptionParser(
-  usage = '\n  %prog [options] <suite> <target>'
-          '\n  %prog [options] --print-config <suite> <target> > yum.conf'
-          '\n  %prog [options] --list-suites'
-          '\n  %prog [options] <suite|target> --list-scripts'
-          '\n  %prog [options] <target> --just-scripts [script script ...]'
-          '',
+o = argparse.ArgumentParser(
   description = 'Install Yum-based distribution in a chroot environment.',
 )
 
@@ -47,41 +41,58 @@ expected_nargs = {
 }
 
 o.set_defaults(
-  action = 'install',
   include = [],
   exclude = [],
   groups = [],
   repositories = {},
 )
 
-def add_pkg_list(option, opt, value, parser, attr):
-  getattr(parser.values, attr).extend(value.split(','))
+def comma_list(string):
+  return string.split(',')
+
+def kv_list(string):
+  if '=' not in value:
+    raise argparse.OptionValueError('"%s" is not in NAME=VALUE format' % value)
+  (k,v) = value.split('=', 1)
+  return { k: v }
 
 def add_kv_list(option, opt, value, parser, attr):
   if '=' not in value:
-    raise optparse.OptionValueError('"%s" is not in NAME=VALUE format' % value)
+    raise argparse.OptionValueError('"%s" is not in NAME=VALUE format' % value)
   (k,v) = value.split('=', 1)
   getattr(parser.values, attr)[k] = v
 
 #-----------------------------------------------------------
 
-o.add_option(
+actions = o.add_subparsers(help='Actions', dest='action')
+
+installact = actions.add_parser('install')
+
+list_suitesact = actions.add_parser('list_suites')
+
+list_scriptsact = actions.add_parser('list_scripts')
+
+scriptsact = actions.add_parser('scripts')
+
+yumconfact = actions.add_parser('yum.conf')
+
+o.add_argument(
   '--print-config',
   action = 'store_const', dest = 'action', const = 'yum.conf',
   help = 'print Yum configuration which will be used by yumbootstrap',
 )
-o.add_option(
+o.add_argument(
   '--list-suites',
   action = 'store_const', dest = 'action', const = 'list_suites',
   help = 'list available suites and exit',
 )
-o.add_option(
+o.add_argument(
   '--list-scripts',
   action = 'store_const', dest = 'action', const = 'list_scripts',
   help = 'list scripts in a suite (or in a target created with --no-scripts)'
          ' and exit',
 )
-o.add_option(
+o.add_argument(
   '--just-scripts',
   action = 'store_const', dest = 'action', const = 'scripts',
   help = 'list available suites and exit',
@@ -89,123 +100,113 @@ o.add_option(
 
 #-----------------------------------------------------------
 
-o.add_option(
+o.add_argument(
   '--verbose',
   action = 'store_true', default = False,
   help = 'be verbose about operations',
 )
-o.add_option(
+o.add_argument(
   '--noninteractive',
   action = 'store_false', dest = 'interactive', default = True,
   help = 'run in non-interactive mode (e.g. no progress bars)',
 )
-#o.add_option(
+#o.add_argument(
 #  '--arch', # TODO
 #  action = 'store', default = os.uname()[4],
 #  help = 'specify target architecture',
 #)
-#o.add_option(
+#o.add_argument(
 #  '--proxy', # TODO
-#  action = 'store', type = 'string', default = None,
+#  action = 'store', default = None,
 #  help = 'specify a proxy to use when fetching files',
 #  metavar = 'HOST:PORT',
 #)
-o.add_option(
+o.add_argument(
   '--skip-script',
   action = 'append', dest = 'skip', default = [],
   help = 'skip this post-install script(s) (may be specified multiple times;'
          ' see also --list-scripts)',
   metavar = 'NAME',
 )
-o.add_option(
+o.add_argument(
   '--no-scripts',
   action = 'store_false', dest = 'run_scripts', default = True,
   help = "don't run any post-install scripts after installation",
 )
-o.add_option(
+o.add_argument(
   '--suite-dir',
-  action = 'store', dest = 'suite_dir', type = 'string', default = SUITE_DIR,
+  action = 'store', dest = 'suite_dir', default = SUITE_DIR,
   help = 'specify a directory with suite definitions',
   metavar = 'PATH',
 )
-o.add_option(
+installact.add_argument(
   '--include',
-  action = 'callback', type = 'string',
-  callback = add_pkg_list, callback_args = ('include',),
+  type = comma_list, default = [],
   help = 'include these packages (comma separated list; may be specified'
          ' multiple times)',
   metavar = 'RPMS',
 )
-o.add_option(
-  '--exclude',
-  action = 'callback', type = 'string',
-  callback = add_pkg_list, callback_args = ('exclude',),
+installact.add_argument(
+  '--exclude', default = [],
+  type = comma_list,
   help = 'exclude these packages (comma separated list; may be specified'
          ' multiple times)',
   metavar = 'RPMS',
 )
-o.add_option(
-  '--groups',
-  action = 'callback', type = 'string',
-  callback = add_pkg_list, callback_args = ('groups',),
+installact.add_argument(
+  '--groups', default = [],
+  type = comma_list,
   help = 'install these package groups (comma separated list; may be specified'
          ' multiple times)',
 )
-#o.add_option(
+#installact.add_argument(
 #  '--no-default-rpms', # TODO
 #  action = 'store_false', dest = 'install_default_rpms', default = True,
 #  help = "don't install default RPMs set (useful for splitting installation"
 #         " into several parts; see also --skip-fix-rpmdb and --skip-cleanup"
 #         " options)",
 #)
-o.add_option(
+installact.add_argument(
   '--gpg-key',
   action = 'append', dest = 'gpg_keys', default = [],
   help = 'add GPG key as a trusted RPM signing key (may be specified'
          ' multiple times)',
   metavar = 'KEYFILE',
 )
-o.add_option(
+installact.add_argument(
   '--repo',
-  action = 'callback', type = 'string',
-  callback = add_kv_list, callback_args = ('repositories',),
+#  action = 'callback',
+#  callback = add_kv_list, callback_args = ('repositories',),
+  type = kv_list,
   help = 'use this Yum repository (may be specified multiple times)',
   metavar = 'NAME=URL',
 )
-#o.add_option(
+#installact.add_argument(
 #  '--download-only', # TODO
 #  action = 'store_const', dest = 'action', const = 'download',
 #  help = "download RPMs only, don't install them",
 #)
-#o.add_option(
+#installact.add_argument(
 #  '--foreign', # TODO
 #  action = 'store_true', dest = 'no_scripts', default = False,
 #  help = "don't run post-install scripts from RPM (mainly useful for"
 #         " non-matching architecture in --arch option)",
 #)
-#o.add_option(
+#installact.add_argument(
 #  '--second-stage', # TODO
 #  action = 'store_const', dest = 'action', const = 'second_stage',
 #  help = "finalize the installation started with --foreign option",
 #)
-#o.add_option(
+#installact.add_argument(
 #  '--make-tarball', # TODO
 #  action = 'store_const', dest = 'action', const = 'tarball',
 #  help = "make a tarball with RPMs instead of installing them",
 #)
-#o.add_option(
+#installact.add_argument(
 #  '--unpack-tarball', # TODO
 #  action = 'store', dest = 'tarball', default = None,
 #  help = "use RPMs from a tarball created with --make-tarball option",
 #)
-
-opts, args = o.parse_args()
-
-if not expected_nargs[opts.action](len(args)):
-  o.error("wrong number of arguments")
-
-if opts.verbose:
-  logger.setLevel(logging.INFO)
 
 #-----------------------------------------------------------------------------
 
@@ -267,20 +268,20 @@ def run_post_install_scripts(suite, skip = [], just = []):
 #-----------------------------------------------------------
 
 # helper function
-def set_scripts_environment(opts, target):
+def set_scripts_environment(args, target):
   os.environ["TARGET"] = os.path.abspath(target)
-  if opts.verbose:
+  if args.verbose:
     os.environ["VERBOSE"] = "true"
   else:
     os.environ["VERBOSE"] = "false"
 
 #-----------------------------------------------------------
 
-def do_install(opts, suite_name, target):
+def do_install(args, suite_name, target):
   from yumbootstrap.fs import touch, mkdir, mkchardev
 
-  set_scripts_environment(opts, target)
-  suite = yumbootstrap.suites.load_suite(opts.suite_dir, suite_name)
+  set_scripts_environment(args, target)
+  suite = yumbootstrap.suites.load_suite(args.suite_dir, suite_name)
 
   logger.info("installing %s (release %s) to %s",
               suite.name, suite.release, target)
@@ -298,10 +299,10 @@ def do_install(opts, suite_name, target):
   mkchardev(target, "dev/urandom", mode = 0o666, major = 1, minor = 9)
   mkchardev(target, "dev/tty",     mode = 0o666, major = 5, minor = 0)
 
-  if len(opts.repositories) > 0:
+  if len(args.repositories) > 0:
     logger.info("using custom repositories: %s",
-                ", ".join(sorted(opts.repositories)))
-    repositories = opts.repositories
+                ", ".join(sorted(args.repositories)))
+    repositories = args.repositories
   else:
     logger.info("using built-in repositories")
     repositories = suite.repositories
@@ -312,13 +313,13 @@ def do_install(opts, suite_name, target):
     env = suite.environment,
   )
 
-  write_cached_suite(yum_conf.root_dir, opts.suite_dir, suite_name)
+  write_cached_suite(yum_conf.root_dir, args.suite_dir, suite_name)
 
   # installing works also without adding key, but --nogpgcheck is passed to
   # Yum, so it's generally discouraged
-  if len(opts.gpg_keys) > 0 or len(suite.gpg_keys) > 0:
+  if len(args.gpg_keys) > 0 or len(suite.gpg_keys) > 0:
     logger.info("adding GPG keys")
-    for keyfile in opts.gpg_keys:
+    for keyfile in args.gpg_keys:
       yum_conf.add_key(keyfile)
     for keyfile in suite.gpg_keys:
       yum_conf.add_key(keyfile)
@@ -328,10 +329,10 @@ def do_install(opts, suite_name, target):
   yum = yumbootstrap.yum.Yum(
     chroot = target,
     yum_conf = yum_conf,
-    interactive = opts.interactive,
+    interactive = args.interactive,
   )
 
-  exclude = suite.packages.exclude + opts.exclude
+  exclude = suite.packages.exclude + args.exclude
 
   # main set of packages (should already include yum and /usr/bin/db_load, so
   # `yum.fix_rpmdb()' works)
@@ -341,17 +342,17 @@ def do_install(opts, suite_name, target):
   yum.install(install, exclude = exclude)
 
   # requested additional packages
-  if len(opts.include) > 0:
+  if len(args.include) > 0:
     logger.info("installing additional packages requested from command line")
-    yum.install(opts.include, exclude = exclude)
-  if len(opts.groups) > 0:
+    yum.install(args.include, exclude = exclude)
+  if len(args.groups) > 0:
     logger.info("installing additional package groups requested from "
                 "command line")
-    yum.group_install(opts.groups, exclude = exclude)
+    yum.group_install(args.groups, exclude = exclude)
 
   if len(suite.post_install) > 0:
-    if opts.run_scripts:
-      run_post_install_scripts(suite, skip = opts.skip)
+    if args.run_scripts:
+      run_post_install_scripts(suite, skip = args.skip)
     else:
       logger.info("skipping post-install scripts altogether")
 
@@ -359,15 +360,15 @@ def do_install(opts, suite_name, target):
 
 #-----------------------------------------------------------
 
-def do_list_suites(opts):
-  for suite in yumbootstrap.suites.list_suites(opts.suite_dir):
+def do_list_suites(args):
+  for suite in yumbootstrap.suites.list_suites(args.suite_dir):
     print(suite)
 
 #-----------------------------------------------------------
 
-def do_list_scripts(opts, target):
-  if target in yumbootstrap.suites.list_suites(opts.suite_dir):
-    suite = yumbootstrap.suites.load_suite(opts.suite_dir, target)
+def do_list_scripts(args, target):
+  if target in yumbootstrap.suites.list_suites(args.suite_dir):
+    suite = yumbootstrap.suites.load_suite(args.suite_dir, target)
   else:
     suite = read_cached_suite(target)
   for name in suite.post_install.names():
@@ -375,30 +376,30 @@ def do_list_scripts(opts, target):
 
 #-----------------------------------------------------------
 
-def do_scripts(opts, target, *scripts):
-  set_scripts_environment(opts, target)
+def do_scripts(args, target, *scripts):
+  set_scripts_environment(args, target)
   suite = read_cached_suite(target)
-  run_post_install_scripts(suite, skip = opts.skip, just = scripts)
+  run_post_install_scripts(suite, skip = args.skip, just = scripts)
 
 #-----------------------------------------------------------
 
-def do_yum_conf(opts, suite, target):
+def do_yum_conf(args, suite, target):
   logger.setLevel(logging.WARNING) # do not honour --verbose option
   import yumbootstrap.suites
-  suite = yumbootstrap.suites.load_suite(opts.suite_dir, suite)
+  suite = yumbootstrap.suites.load_suite(args.suite_dir, suite)
 
-  if len(opts.repositories) > 0:
-    repositories = opts.repositories
+  if len(args.repositories) > 0:
+    repositories = args.repositories
   else:
     repositories = suite.repositories
 
   yum_conf = yumbootstrap.yum.YumConfig(chroot = target, repos = repositories)
 
-  if len(opts.gpg_keys) > 0:
-    cmd = 'cat %s > %s' % (' '.join(opts.gpg_keys), yum_conf.gpg_keys)
+  if len(args.gpg_keys) > 0:
+    cmd = 'cat %s > %s' % (' '.join(args.gpg_keys), yum_conf.gpg_keys)
     sys.stdout.write('# remember to put the keys to target directory:\n')
     sys.stdout.write('# %s\n\n' % (cmd))
-    for keyfile in opts.gpg_keys:
+    for keyfile in args.gpg_keys:
       yum_conf.add_key(keyfile, pretend = True)
 
   sys.stdout.write(yum_conf.text())
@@ -408,20 +409,25 @@ def do_yum_conf(opts, suite, target):
 
 #-----------------------------------------------------------------------------
 
+installact.set_defaults(func=do_install)
+list_suitesact.set_defaults(func=do_list_suites)
+list_scriptsact.set_defaults(func=do_list_scripts)
+scriptsact.set_defaults(func=do_scripts)
+yumconfact.set_defaults(func=do_yum_conf)
+
+args = o.parse_args()
+
+#if not expected_nargs[args.action](len(args)):
+#  o.error("wrong number of arguments")
+
+if args.verbose:
+  logger.setLevel(logging.INFO)
+
 try:
-  if opts.action == 'install':
-    do_install(opts, *args)
-  elif opts.action == 'list_suites':
-    do_list_suites(opts, *args)
-  elif opts.action == 'list_scripts':
-    do_list_scripts(opts, *args)
-  elif opts.action == 'scripts':
-    do_scripts(opts, *args)
-  elif opts.action == 'yum.conf':
-    do_yum_conf(opts, *args)
+  if args.action:
+      args.func(args)
   else:
-    # should never happen
-    o.error("unrecognized action: %s" % (opts.action,))
+      o.error("Specify an action")
 except KeyboardInterrupt:
   pass
 except YBError as e:
