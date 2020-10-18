@@ -1,0 +1,14 @@
+name = RedOS
+release = 7.2
+
+#gpg_key =  
+#gpg_key =  
+
+packages = packages/redos.list
+
+[post_install]
+finalize = scripts/fix_rpmdb.py
+finalize = scripts/clean_yumbootstrap.py
+
+[repositories]
+

@@ -1,0 +1,50 @@
+@core
+-audit
+-btrfs-progs
+-e2fsprogs
+-initscripts
+-iproute
+-iptables
+-irqbalance
+-kbd
+-kexec-tools
+-openssh-server
+-openssh-clients
+-parted
+-plymouth
+-xfsprogs
+-tuned
+-cronie
+-man-db
+-vim-minimal
+
+# subset from @Core
+#coreutils
+#bash
+#grep
+#gawk
+#basesystem
+#rpm
+#initscripts
+#yum
+#iproute
+
+# subset from @Base
+#less
+#make
+#mktemp
+#vim-minimal
+#authconfig
+#dhclient
+#chkconfig
+# graphical boot helper (used by initscripts)
+#plymouth
+# ~root/.*
+#rootfiles
+
+# redhat-release
+#fedora-release
+
+# required to fix RPM DB
+#/usr/bin/db_load
+

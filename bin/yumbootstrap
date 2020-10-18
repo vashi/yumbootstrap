@@ -44,16 +44,15 @@ o.set_defaults(
   include = [],
   exclude = [],
   groups = [],
-  repositories = {},
 )
 
 def comma_list(string):
   return string.split(',')
 
 def kv_list(string):
-  if '=' not in value:
-    raise argparse.OptionValueError('"%s" is not in NAME=VALUE format' % value)
-  (k,v) = value.split('=', 1)
+  if '=' not in string:
+    raise argparse.OptionValueError('"%s" is not in NAME=VALUE format' % string)
+  (k,v) = string.split('=', 1)
   return { k: v }
 
 def add_kv_list(option, opt, value, parser, attr):
@@ -174,12 +173,25 @@ installact.add_argument(
   metavar = 'KEYFILE',
 )
 installact.add_argument(
-  '--repo',
-#  action = 'callback',
-#  callback = add_kv_list, callback_args = ('repositories',),
-  type = kv_list,
-  help = 'use this Yum repository (may be specified multiple times)',
-  metavar = 'NAME=URL',
+  '--no-check-gpg',
+  action = 'store_true',
+  help = 'avoid checking repository signatures'
+)
+installact.add_argument(
+  'suite_name',
+  help = 'suite',
+  metavar = 'name',
+)
+installact.add_argument(
+  'target',
+  help = 'install target',
+  metavar = 'target',
+)
+installact.add_argument(
+  'mirror',
+  nargs='?',
+  help = 'URL to yum repository',
+  metavar = 'mirror',
 )
 #installact.add_argument(
 #  '--download-only', # TODO
@@ -277,8 +289,11 @@ def set_scripts_environment(args, target):
 
 #-----------------------------------------------------------
 
-def do_install(args, suite_name, target):
+def do_install(args):
   from yumbootstrap.fs import touch, mkdir, mkchardev
+
+  suite_name = args.suite_name
+  target = args.target
 
   set_scripts_environment(args, target)
   suite = yumbootstrap.suites.load_suite(args.suite_dir, suite_name)
@@ -299,10 +314,10 @@ def do_install(args, suite_name, target):
   mkchardev(target, "dev/urandom", mode = 0o666, major = 1, minor = 9)
   mkchardev(target, "dev/tty",     mode = 0o666, major = 5, minor = 0)
 
-  if len(args.repositories) > 0:
+  if args.mirror:
     logger.info("using custom repositories: %s",
-                ", ".join(sorted(args.repositories)))
-    repositories = args.repositories
+                ", ".join([args.mirror]))
+    repositories = { suite.name: args.mirror }
   else:
     logger.info("using built-in repositories")
     repositories = suite.repositories
@@ -311,25 +326,26 @@ def do_install(args, suite_name, target):
     chroot = target,
     repos = repositories,
     env = suite.environment,
+    verify = not args.no_check_gpg
   )
 
   write_cached_suite(yum_conf.root_dir, args.suite_dir, suite_name)
 
   # installing works also without adding key, but --nogpgcheck is passed to
   # Yum, so it's generally discouraged
-  if len(args.gpg_keys) > 0 or len(suite.gpg_keys) > 0:
+  if not args.no_check_gpg and (len(args.gpg_keys) > 0 or len(suite.gpg_keys) > 0):
     logger.info("adding GPG keys")
     for keyfile in args.gpg_keys:
       yum_conf.add_key(keyfile)
     for keyfile in suite.gpg_keys:
       yum_conf.add_key(keyfile)
   else:
-    pass # TODO: print warning
+    logger.warning("disable GPG verify")
 
   yum = yumbootstrap.yum.Yum(
     chroot = target,
     yum_conf = yum_conf,
-    interactive = args.interactive,
+    interactive = args.interactive
   )
 
   exclude = suite.packages.exclude + args.exclude

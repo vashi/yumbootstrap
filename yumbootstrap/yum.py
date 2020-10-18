@@ -1,6 +1,7 @@
-import rpm as rpm_mod
+#import rpm as rpm_mod
 import os
 import shutil
+from textwrap import dedent
 
 from . import bdb
 from . import sh
@@ -22,10 +23,12 @@ def mklist(value):
 #-----------------------------------------------------------------------------
 
 class YumConfig:
-  def __init__(self, chroot, repos = {}, env = None):
+  def __init__(self, chroot, repos = {}, env = None, verify = True):
     self.chroot = os.path.abspath(chroot)
     self.repos = repos.copy() # shallow copy is enough
-    self.gpg_keys = os.path.join(self.chroot, 'yumbootstrap/RPM-GPG-KEYS')
+    self.verify = verify
+    if verify:
+        self.gpg_keys = os.path.join(self.chroot, 'yumbootstrap/RPM-GPG-KEYS')
     self.pretend_has_keys = False
     #self.multilib = False
     self.env = env
@@ -49,39 +52,36 @@ class YumConfig:
     return os.path.join(self.chroot, 'yumbootstrap')
 
   def text(self):
-    if self.pretend_has_keys or os.path.exists(self.gpg_keys):
+    if self.verify:
       logger.info("GPG keys defined, adding them to repository configs")
       gpgcheck = 1
       def repo(name, url):
-        return \
-          '\n' \
-          '[%s]\n' \
-          'name = %s\n' \
-          'baseurl = %s\n' \
-          'gpgkey = file://%s\n' % (name, name, url, self.gpg_keys)
+        return dedent(f"""\
+                [{name}]
+                name = {name}
+                baseurl = {url}
+                gpgkey = file://{self.gpg_keys}""")
     else:
       logger.warn("no GPG keys defined, RPM signature verification disabled")
-      gpgcheck = 0
       def repo(name, url):
-        return \
-          '\n' \
-          '[%s]\n' \
-          'name = %s\n' \
-          'baseurl = %s\n' % (name, name, url)
+        return dedent(f"""\
+          [{name}]
+          name = {name}
+          baseurl = {url}""")
 
-    main = \
-      '[main]\n' \
-      'exactarch = 1\n' \
-      'obsoletes = 1\n' \
-      '#multilib_policy = all | best\n' \
-      'cachedir = /yumbootstrap/cache\n' \
-      'logfile  = /yumbootstrap/log/yum.log\n'
-    main += 'gpgcheck = %d\n' % (gpgcheck)
-    main += 'reposdir = %s/yumbootstrap/yum.repos.d\n' % (gpgcheck)
+    main = dedent(f"""\
+      [main]
+      exactarch = 1
+      obsoletes = 1
+      #multilib_policy = all | best
+      cachedir = /yumbootstrap/cache
+      logfile  = /yumbootstrap/log/yum.log
+      gpgcheck = {self.verify}
+      reposdir = /yumbootstrap/yum.repos.d""")
 
-    repos = [repo(name, self.repos[name]) for name in sorted(self.repos)]
+    repos = [repo(name, self.repos[name]) for name in self.repos]
 
-    return main + ''.join(repos)
+    return main + '\n' + '\n'.join(repos)
 
 #-----------------------------------------------------------------------------
 
@@ -124,7 +124,7 @@ class Yum:
     exclude_opts = ["--exclude=" + pkg for pkg in exclude]
 
     sh.run(
-      self._yum_call() + exclude_opts + ['install'] + mklist(packages),
+      self._yum_call() + ["--setopt=group_package_types=mandatory"] + exclude_opts + ['install'] + mklist(packages),
       env = self.yum_conf.env,
     )
 
